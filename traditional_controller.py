@@ -20,30 +20,18 @@ class TrafficLightPhase:
 
     def get_total_duration(self):
         """Возвращает общую продолжительность фазы"""
-        return sum(self.durations.values())
+        return self.durations["green"] + self.durations["yellow"] + self.durations["red"]
 
     def get_state_at_time(self, time_in_phase):
-        """Возвращает состояние всех направлений в заданный момент времени внутри фазы"""
-        current_time = 0
+        if time_in_phase < self.durations["green"]:
+            return self.directions.copy()
         
-        # Проверяем зеленый сигнал
-        if current_time <= time_in_phase < current_time + self.durations["green"]:
-            return {dir: "green" for dir, state in self.directions.items()}
-        
-        current_time += self.durations["green"]
-        
-        # Проверяем желтый сигнал
-        if current_time <= time_in_phase < current_time + self.durations["yellow"]:
+        time_in_phase -= self.durations["green"]
+        if time_in_phase < self.durations["yellow"]:
             return {dir: "yellow" for dir, state in self.directions.items()}
         
-        current_time += self.durations["yellow"]
-        
-        # Проверяем красный сигнал
-        if current_time <= time_in_phase < current_time + self.durations["red"]:
-            return {dir: "red" for dir, state in self.directions.items()}
-        
-        # По умолчанию возвращаем текущее состояние
-        return self.directions
+        time_in_phase -= self.durations["yellow"]
+        return {dir: "red" for dir, state in self.directions.items()}
 
 class TraditionalController:
     """Класс для управления светофором с фиксированными фазами"""
@@ -57,36 +45,31 @@ class TraditionalController:
         }
         self.current_mode = current_mode
         self.start_time = None
-        self.total_cycle_duration = sum(phase.total_duration for phase in self.phases)
+        self.total_cycle_duration = sum(phase.get_total_duration() for phase in phases)
 
     def start(self):
         """Запускает работу контроллера и инициализирует таймер"""
         self.start_time = time.time()
 
-    def update(self, current_time):
-        """Обновляет состояние светофора"""
+    def update(self, current_time=None):
         if self.start_time is None:
             self.start()
         
-        # Рассчитываем время с момента запуска
-        elapsed_time = current_time - self.start_time if isinstance(current_time, float) else time.time() - self.start_time
+        elapsed_time = (current_time or time.time()) - self.start_time
+        normalized_time = elapsed_time % self.total_cycle_duration
         
-        # Получаем общий цикл
-        cycle_duration = self.cycle_times[self.current_mode]
-        
-        # Нормализуем время в рамках цикла
-        normalized_time = elapsed_time % cycle_duration
-        
-        # Определяем текущую фазу
         time_counter = 0
         for phase in self.phases:
-            if normalized_time < time_counter + phase.total_duration:
+            phase_duration = phase.get_total_duration()
+            if normalized_time < time_counter + phase_duration:
                 time_in_phase = normalized_time - time_counter
-                return phase.get_state_at_time(time_in_phase)
-            time_counter += phase.total_duration
-            
-        # По умолчанию возвращаем последнюю фазу
-        return self.phases[-1].get_state_at_time(self.phases[-1].total_duration - 1)
+                state = phase.get_state_at_time(time_in_phase)
+                print(f"[DEBUG] Phase: {phase.phase_name}, Time in phase: {time_in_phase:.1f}s")
+                return state
+            time_counter += phase_duration
+        
+        last_phase = self.phases[-1]
+        return last_phase.get_state_at_time(last_phase.get_total_duration() - 1)
 
     def set_mode(self, mode):
         """Изменяет режим работы"""
@@ -97,18 +80,18 @@ class TraditionalController:
 
     def get_current_phase(self):
         """Возвращает текущую активную фазу"""
-        current_time = time.time()
         if self.start_time is None:
             self.start()
             
-        elapsed_time = current_time - self.start_time
+        elapsed_time = time.time() - self.start_time
         normalized_time = elapsed_time % self.total_cycle_duration
         
         time_counter = 0
         for phase in self.phases:
-            if normalized_time < time_counter + phase.total_duration:
+            phase_duration = phase.get_total_duration()
+            if normalized_time < time_counter + phase_duration:
                 return phase
-            time_counter += phase.total_duration
+            time_counter += phase_duration
             
         return self.phases[-1]
 
@@ -125,18 +108,18 @@ class TraditionalController:
                     phase_id=phase_data['phase_id'],
                     phase_name=phase_data['phase_name'],
                     durations=phase_data['durations'],
-                    directions=phase_data['directions']
+                    directions=phase_data['directions'].copy()
                 )
                 phases.append(phase)
             
             self.phases = phases
             
             # Обновляем общую длительность цикла
-            self.total_cycle_duration = sum(phase.total_duration for phase in self.phases)
+            self.total_cycle_duration = sum(phase.get_total_duration() for phase in phases)
             
             # Загружаем режимы работы
             if 'cycle_times' in config:
-                self.cycle_times = config['cycle_times']
+                self.cycle_times = config['cycle_times'].copy()
                 
             if 'default_mode' in config:
                 self.current_mode = config['default_mode']
@@ -154,16 +137,16 @@ class TraditionalController:
                 "phases": [{
                     "phase_id": phase.phase_id,
                     "phase_name": phase.phase_name,
-                    "durations": phase.durations,
-                    "directions": phase.directions
+                    "durations": phase.durations.copy(),
+                    "directions": phase.directions.copy()
                 } for phase in self.phases],
-                "cycle_times": self.cycle_times,
+                "cycle_times": self.cycle_times.copy(),
                 "current_mode": self.current_mode,
                 "start_time": self.start_time
             }
             
             with open(state_file, 'w') as f:
-                json.dump(state, f, indent=2)
+                json.dump(state, f, indent=2, default=str)
                 
             return True
             
@@ -172,8 +155,7 @@ class TraditionalController:
             return False
 
 def create_default_phases():
-    """Создает стандартный набор фаз для четырехстороннего перекрестка"""
-    phases = [
+    return [
         TrafficLightPhase(
             phase_id=0,
             phase_name="North-South Green",
@@ -187,17 +169,6 @@ def create_default_phases():
         ),
         TrafficLightPhase(
             phase_id=1,
-            phase_name="North-South Yellow",
-            durations={"green": 0, "yellow": 5, "red": 0},
-            directions={
-                "north": "yellow", 
-                "south": "yellow", 
-                "east": "red", 
-                "west": "red"
-            }
-        ),
-        TrafficLightPhase(
-            phase_id=2,
             phase_name="East-West Green",
             durations={"green": 30, "yellow": 5, "red": 0},
             directions={
@@ -206,20 +177,8 @@ def create_default_phases():
                 "east": "green", 
                 "west": "green"
             }
-        ),
-        TrafficLightPhase(
-            phase_id=3,
-            phase_name="East-West Yellow",
-            durations={"green": 0, "yellow": 5, "red": 0},
-            directions={
-                "north": "red", 
-                "south": "red", 
-                "east": "yellow", 
-                "west": "yellow"
-            }
         )
     ]
-    return phases
 
 class TrafficLight:
     """Класс для управления светофором"""
@@ -293,8 +252,8 @@ def main():
             print(f"Текущее состояние: {current_state}")
             print(f"Активные направления: {active_dirs}")
             
-            # Ждем 5 секунд перед следующим обновлением
-            time.sleep(5)
+            # Ждем 1 секунду для более точного наблюдения изменений
+            time.sleep(1)
             
     except KeyboardInterrupt:
         print("\nСимуляция остановлена пользователем")
