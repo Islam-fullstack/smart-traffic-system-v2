@@ -7,8 +7,15 @@ import os
 import argparse
 import time
 
+# Импортируем классы из других модулей
+from traffic_model import Lane, Vehicle
+from traditional_controller import TraditionalController, TrafficLight, create_default_phases
+from smart_controller import SmartController
+from simulation_manager import SimulationManager
+
 class IntersectionVisualizer:
     """Визуализатор одного перекрестка с анимацией"""
+    
     # Цвета
     COLORS = {
         'background': (255, 255, 255),
@@ -58,44 +65,48 @@ class IntersectionVisualizer:
         
         # Рисуем дороги
         road_width = 10 * self.scale  # ширина дороги в пикселях
-        for direction in ['north', 'south', 'east', 'west']:
-            if direction == 'north':
-                rect = pygame.Rect(center_x - road_width//2, 0, road_width, center_y)
-            elif direction == 'south':
-                rect = pygame.Rect(center_x - road_width//2, center_y, road_width, height - center_y)
-            elif direction == 'east':
-                rect = pygame.Rect(center_x, center_y - road_width//2, width - center_x, road_width)
-            else:  # west
-                rect = pygame.Rect(0, center_y - road_width//2, center_x, road_width)
+        
+        # Горизонтальные дороги (север-юг)
+        pygame.draw.rect(self.screen, self.COLORS['road'], 
+                        (center_x - road_width//2, 0, road_width, height))
+        
+        # Вертикальные дороги (восток-запад)
+        pygame.draw.rect(self.screen, self.COLORS['road'],
+                        (0, center_y - road_width//2, width, road_width))
+
+        # Рисуем полосы движения
+        lane_width = road_width // 2
+        for i in [-1, 1]:
+            # Север-юг
+            north_south_lane = pygame.Rect(
+                center_x + i * lane_width // 4, 0, 
+                lane_width // 2, height
+            )
+            pygame.draw.rect(self.screen, self.COLORS['lane'], north_south_lane)
             
-            pygame.draw.rect(self.screen, self.COLORS['road'], rect)
-            
-            # Рисуем полосы
-            if direction in ['north', 'south']:
-                lane_width = road_width // 2
-                for i in [-1, 1]:
-                    lane_rect = pygame.Rect(center_x + i * lane_width // 4, 0, 
-                                          lane_width // 2, height)
-                    pygame.draw.rect(self.screen, self.COLORS['lane'], lane_rect)
-            else:
-                lane_width = road_width // 2
-                for i in [-1, 1]:
-                    lane_rect = pygame.Rect(0, center_y + i * lane_width // 4,
-                                          width, lane_width // 2)
-                    pygame.draw.rect(self.screen, self.COLORS['lane'], lane_rect)
+            # Восток-запад
+            east_west_lane = pygame.Rect(
+                0, center_y + i * lane_width // 4, 
+                width, lane_width // 2
+            )
+            pygame.draw.rect(self.screen, self.COLORS['lane'], east_west_lane)
 
     def draw_vehicles(self, vehicles):
         """Отображает транспортные средства"""
         for vehicle in vehicles:
             x, y = self._calculate_vehicle_position(vehicle)
             size = max(5, vehicle.length * self.scale // 2)
+            
+            # Определяем цвет в зависимости от типа ТС
             color = self.COLORS['vehicle'].get(vehicle.vehicle_type, (0, 0, 255))
             
+            # Рисуем основное транспортное средство
             pygame.draw.circle(self.screen, color, (int(x), int(y)), size)
             
-            # Индикация направления
+            # Добавляем индикацию направления
             direction = vehicle.direction
             arrow_size = size // 2
+            
             if direction == 'north':
                 points = [(x, y), (x - arrow_size, y + arrow_size), (x + arrow_size, y + arrow_size)]
             elif direction == 'south':
@@ -104,7 +115,7 @@ class IntersectionVisualizer:
                 points = [(x, y), (x - arrow_size, y - arrow_size), (x - arrow_size, y + arrow_size)]
             else:  # west
                 points = [(x, y), (x + arrow_size, y - arrow_size), (x + arrow_size, y + arrow_size)]
-            
+                
             pygame.draw.polygon(self.screen, (0, 0, 0), points)
 
     def _calculate_vehicle_position(self, vehicle):
@@ -112,18 +123,13 @@ class IntersectionVisualizer:
         width, height = self.window_size
         center_x, center_y = width // 2, height // 2
         
-        direction = vehicle.direction
-        lane_length = 100  # метров
-        screen_length = lane_length * self.scale
-        
-        # Расчет позиции в зависимости от направления
-        if direction == 'north':
+        if vehicle.direction == 'north':
             x = center_x
             y = center_y - vehicle.position * self.scale
-        elif direction == 'south':
+        elif vehicle.direction == 'south':
             x = center_x
             y = center_y + vehicle.position * self.scale
-        elif direction == 'east':
+        elif vehicle.direction == 'east':
             x = center_x + vehicle.position * self.scale
             y = center_y
         else:  # west
@@ -147,20 +153,22 @@ class IntersectionVisualizer:
         }
         
         # Рисуем светофоры
-        for direction in light_positions:
-            x, y = light_positions[direction]
+        for direction, (x, y) in light_positions.items():
+            # Стойка светофора
             pygame.draw.rect(self.screen, (128, 128, 128), (x - 10, y - 40, 20, 80))
             
             # Получаем текущее состояние
             state = self.traffic_light.get_state().get(direction, 'red')
             color = self.COLORS['traffic_light'].get(state, (128, 128, 128))
             
-            # Рисуем сигнал
+            # Рисуем сигналы
             if direction in ['north', 'south']:
+                # Вертикальные светофоры
                 pygame.draw.circle(self.screen, color, (x, y - 20), light_radius)
                 pygame.draw.circle(self.screen, (128, 128, 128), (x, y), light_radius)
                 pygame.draw.circle(self.screen, (128, 128, 128), (x, y + 20), light_radius)
             else:
+                # Горизонтальные светофоры
                 pygame.draw.circle(self.screen, (128, 128, 128), (x - 20, y), light_radius)
                 pygame.draw.circle(self.screen, color, (x, y), light_radius)
                 pygame.draw.circle(self.screen, (128, 128, 128), (x + 20, y), light_radius)
@@ -228,20 +236,20 @@ class IntersectionVisualizer:
         self.running = False
         self.initialize_display()
         
-        temp_frames = []
         try:
             for frame in simulation:
                 self.update(frame)
                 frame = pygame.surfarray.array3d(self.screen)
-                temp_frames.append(np.transpose(frame, (1, 0, 2)))
-                
-            clip = ImageSequenceClip(temp_frames, fps=self.fps)
-            clip.write_videofile(output_file, codec='libx264')
+                self.animation_frames.append(np.transpose(frame, (1, 0, 2)))
         finally:
             pygame.quit()
+            
+        clip = ImageSequenceClip(self.animation_frames, fps=self.fps)
+        clip.write_videofile(output_file, codec='libx264')
 
 class ComparisonVisualizer:
     """Визуализатор для сравнения контроллеров"""
+    
     def __init__(self, window_size: Tuple[int, int], traditional_intersection, 
                  smart_intersection, scale: float = 10.0, fps: int = 30):
         self.window_size = window_size
@@ -265,6 +273,7 @@ class ComparisonVisualizer:
         """Рисует оба перекрестка рядом"""
         width, height = self.window_size
         half_width = width // 2
+        center_x, center_y = width // 4, height // 2
         
         # Очистка экрана
         self.screen.fill((255, 255, 255))
@@ -272,9 +281,13 @@ class ComparisonVisualizer:
         # Рисуем разделительную линию
         pygame.draw.line(self.screen, (0, 0, 0), (half_width, 0), (half_width, height), 2)
         
-        # Рисуем левые и правые перекрестки
-        self._draw_single_intersection(self.traditional_intersection, (0, 0))
-        self._draw_single_intersection(self.smart_intersection, (half_width, 0))
+        # Рисуем левый перекресток
+        for direction in ['north', 'south', 'east', 'west']:
+            if direction in ['north', 'south']:
+                rect = pygame.Rect(center_x - road_width//2, 0, road_width, center_y)
+            else:
+                rect = pygame.Rect(center_x, center_y - road_width//2, width - center_x, road_width)
+            pygame.draw.rect(self.screen, (100, 100, 100), rect)
 
     def _draw_single_intersection(self, intersection, offset):
         """Рисует один перекресток с заданным смещением"""
@@ -284,16 +297,17 @@ class ComparisonVisualizer:
         center_y += offset[1]
         
         road_width = 10 * self.scale
+        
         # Рисуем дороги
         for direction in ['north', 'south', 'east', 'west']:
-            if direction == 'north':
+            if direction in ['north', 'south']:
                 rect = pygame.Rect(center_x - road_width//2, 0 + offset[1], 
                                   road_width, center_y)
             elif direction == 'south':
                 rect = pygame.Rect(center_x - road_width//2, center_y + offset[1], 
                                   road_width, height - center_y)
             elif direction == 'east':
-                rect = pygame.Rect(center_x + offset[0], center_y - road_width//2 + offset[1], 
+                rect = pygame.Rect(center_x, center_y - road_width//2 + offset[1],
                                   width - center_x, road_width)
             else:  # west
                 rect = pygame.Rect(0 + offset[0], center_y - road_width//2 + offset[1], 
@@ -315,14 +329,8 @@ class ComparisonVisualizer:
         self._draw_vehicles(smart_vehicles, (half_width, 0))
         
         # Рисуем светофоры
-        self._draw_traffic_lights(
-            self.traditional_intersection.traffic_light.get_state(), 
-            (0, 0)
-        )
-        self._draw_traffic_lights(
-            self.smart_intersection.traffic_light.get_state(), 
-            (half_width, 0)
-        )
+        self._draw_traffic_lights(self.traditional_intersection.traffic_light.get_state(), (0, 0))
+        self._draw_traffic_lights(self.smart_intersection.traffic_light.get_state(), (half_width, 0))
         
         # Отображаем метрики
         self._draw_metrics(traditional_state, (0, 0))
@@ -341,40 +349,30 @@ class ComparisonVisualizer:
         for vehicle in vehicles:
             x, y = self._calculate_vehicle_position(vehicle, offset)
             size = max(5, vehicle.length * self.scale // 2)
-            color = (0, 0, 255)  # Дефолтный цвет
+            color = self.COLORS['vehicle'].get(vehicle.vehicle_type, (0, 0, 255))
             
-            # Получаем цвет в зависимости от типа
-            if hasattr(vehicle, 'vehicle_type'):
-                color = IntersectionVisualizer.COLORS['vehicle'].get(vehicle.vehicle_type, color)
-                
+            # Рисуем ТС
             pygame.draw.circle(self.screen, color, (int(x), int(y)), size)
 
     def _calculate_vehicle_position(self, vehicle, offset):
         """Вычисляет позицию ТС на экране с учетом смещения"""
         width, height = self.window_size
-        center_x, center_y = width // 4, height // 2
-        center_x += offset[0]
-        center_y += offset[1]
+        center_x, center_y = width // 2, height // 2
         
-        direction = vehicle.direction
-        lane_length = 100  # метров
-        screen_length = lane_length * self.scale
-        
-        # Расчет позиции
-        if direction == 'north':
+        if vehicle.direction == 'north':
             x = center_x
             y = center_y - vehicle.position * self.scale
-        elif direction == 'south':
+        elif vehicle.direction == 'south':
             x = center_x
             y = center_y + vehicle.position * self.scale
-        elif direction == 'east':
+        elif vehicle.direction == 'east':
             x = center_x + vehicle.position * self.scale
             y = center_y
         else:  # west
             x = center_x - vehicle.position * self.scale
             y = center_y
             
-        return x, y
+        return x + offset[0], y + offset[1]
 
     def _draw_traffic_lights(self, light_state, offset):
         """Рисует светофоры с заданным смещением"""
@@ -383,7 +381,6 @@ class ComparisonVisualizer:
         center_x += offset[0]
         center_y += offset[1]
         
-        # Позиции светофоров
         light_positions = {
             'north': (center_x - 30, center_y - 50),
             'south': (center_x + 30, center_y + 50),
@@ -391,66 +388,113 @@ class ComparisonVisualizer:
             'west': (center_x - 50, center_y + 30)
         }
         
-        # Рисуем светофоры
-        for direction, pos in light_positions.items():
-            x, y = pos
+        for direction, (x, y) in light_positions.items():
+            # Стойка светофора
             pygame.draw.rect(self.screen, (128, 128, 128), (x - 10, y - 40, 20, 80))
             
             # Получаем текущее состояние
             state = light_state.get(direction, 'red')
-            color = IntersectionVisualizer.COLORS['traffic_light'].get(state, (128, 128, 128))
+            color = self.COLORS['traffic_light'].get(state, (128, 128, 128))
             
-            # Рисуем сигнал
+            # Рисуем сигналы
             if direction in ['north', 'south']:
                 pygame.draw.circle(self.screen, color, (x, y - 20), 10)
+                pygame.draw.circle(self.screen, (128, 128, 128), (x, y), 10)
+                pygame.draw.circle(self.screen, (128, 128, 128), (x, y + 20), 10)
             else:
+                pygame.draw.circle(self.screen, (128, 128, 128), (x - 20, y), 10)
                 pygame.draw.circle(self.screen, color, (x, y), 10)
+                pygame.draw.circle(self.screen, (128, 128, 128), (x + 20, y), 10)
 
     def _draw_metrics(self, metrics, offset):
         """Отображает метрики с заданным смещением"""
-        font = pygame.font.SysFont(None, 24)
+        font = pygame.font.SysFont(None, 20)
         
         # Время ожидания
         wait_time = metrics.get('average_waiting_time', 0)
         text = font.render(f"Ср. время ожидания: {wait_time:.1f}с", True, (0, 0, 0))
         self.screen.blit(text, (10 + offset[0], 10 + offset[1]))
 
-    def run_comparison_animation(self, traditional_sim, smart_sim):
-        """Запускает сравнительную анимацию"""
-        self.running = True
-        self.initialize_display()
-        
-        try:
-            for trad_frame, smart_frame in zip(traditional_sim, smart_sim):
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        self.running = False
-                        break
-                
-                if not self.running:
-                    break
-                
-                self.update(trad_frame, smart_frame)
-        finally:
-            pygame.quit()
+class ResultsVisualizer:
+    """Сравнительный визуализатор для контроллеров"""
+    def __init__(self, traditional_metrics, smart_metrics):
+        self.traditional_metrics = traditional_metrics
+        self.smart_metrics = smart_metrics
 
-    def save_comparison_animation(self, output_file, traditional_sim, smart_sim):
-        """Сохраняет сравнительную анимацию"""
-        self.running = False
-        self.initialize_display()
-        
-        try:
-            for trad_frame, smart_frame in zip(traditional_sim, smart_sim):
-                self.update(trad_frame, smart_frame)
-        finally:
-            pygame.quit()
-            
-        clip = ImageSequenceClip(self.animation_frames, fps=self.fps)
-        clip.write_videofile(output_file, codec='libx264')
+    def plot_waiting_time_comparison(self):
+        """Создаёт график сравнения времени ожидания"""
+        trad_times = [m['average_waiting_time'] for m in self.traditional_metrics]
+        smart_times = [m['average_waiting_time'] for m in self.smart_metrics]
+        times = list(range(len(trad_times)))
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(times, trad_times, label='Традиционный контроллер')
+        plt.plot(times, smart_times, label='Умный контроллер')
+        plt.xlabel('Время (кадры)')
+        plt.ylabel('Среднее время ожидания (сек)')
+        plt.title('Сравнение времени ожидания')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('waiting_time_comparison.png')
+        plt.close()
+
+    def plot_queue_length_comparison(self):
+        """Создаёт график сравнения длины очередей"""
+        trad_queues = [max(m['queue_lengths'].values()) for m in self.traditional_metrics]
+        smart_queues = [max(m['queue_lengths'].values()) for m in self.smart_metrics]
+        times = list(range(len(trad_queues)))
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(times, trad_queues, label='Традиционный контроллер')
+        plt.plot(times, smart_queues, label='Умный контроллер')
+        plt.xlabel('Время (кадры)')
+        plt.ylabel('Максимальная длина очереди')
+        plt.title('Сравнение длины очередей')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('queue_length_comparison.png')
+        plt.close()
+
+    def plot_throughput_comparison(self):
+        """Создаёт график сравнения пропускной способности"""
+        trad_throughput = [m['throughput'] for m in self.traditional_metrics]
+        smart_throughput = [m['throughput'] for m in self.smart_metrics]
+        times = list(range(len(trad_throughput)))
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(times, trad_throughput, label='Традиционный контроллер')
+        plt.plot(times, smart_throughput, label='Умный контроллер')
+        plt.xlabel('Время (кадры)')
+        plt.ylabel('Пропускная способность')
+        plt.title('Сравнение пропускной способности')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('throughput_comparison.png')
+        plt.close()
+
+    def generate_report(self):
+        """Генерирует отчёт с графиками"""
+        print("Генерация отчёта...")
+        self.plot_waiting_time_comparison()
+        self.plot_queue_length_comparison()
+        self.plot_throughput_comparison()
+        print("Отчёт сгенерирован")
+
+    def save_results(self, output_dir):
+        """Сохраняет результаты в указанной директории"""
+        os.makedirs(output_dir, exist_ok=True)
+        self.plot_waiting_time_comparison()
+        self.plot_queue_length_comparison()
+        self.plot_throughput_comparison()
+        print(f"Результаты сохранены в {output_dir}")
 
 class MetricsPlotter:
     """Класс для построения графиков метрик"""
-    def __init__(self, traditional_data: List[Dict], smart_data: List[Dict], output_dir: str):
+    
+    def __init__(self, traditional_data, smart_data, output_dir='results'):
         self.traditional_data = traditional_data
         self.smart_data = smart_data
         self.output_dir = output_dir
@@ -458,8 +502,8 @@ class MetricsPlotter:
 
     def plot_waiting_time(self):
         """Создает график среднего времени ожидания"""
-        trad_times = [frame['average_waiting_time'] for frame in self.traditional_data]
-        smart_times = [frame['average_waiting_time'] for frame in self.smart_data]
+        trad_times = [m['average_waiting_time'] for m in self.traditional_data]
+        smart_times = [m['average_waiting_time'] for m in self.smart_data]
         times = list(range(len(trad_times)))
         
         plt.figure(figsize=(12, 6))
@@ -471,14 +515,15 @@ class MetricsPlotter:
         plt.title('Сравнение среднего времени ожидания')
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, 'waiting_time_comparison.png'))
         plt.close()
 
     def plot_queue_length(self):
         """Создает график длины очередей"""
-        trad_queues = [max(frame['queue_lengths'].values()) for frame in self.traditional_data]
-        smart_queues = [max(frame['queue_lengths'].values()) for frame in self.smart_data]
+        trad_queues = [max(m['queue_lengths'].values()) for m in self.traditional_data]
+        smart_queues = [max(m['queue_lengths'].values()) for m in self.smart_data]
         times = list(range(len(trad_queues)))
         
         plt.figure(figsize=(12, 6))
@@ -490,14 +535,15 @@ class MetricsPlotter:
         plt.title('Сравнение длины очередей')
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, 'queue_length_comparison.png'))
         plt.close()
 
     def plot_throughput(self):
         """Создает график пропускной способности"""
-        trad_throughput = [frame['throughput'] for frame in self.traditional_data]
-        smart_throughput = [frame['throughput'] for frame in self.smart_data]
+        trad_throughput = [m['throughput'] for m in self.traditional_data]
+        smart_throughput = [m['throughput'] for m in self.smart_data]
         times = list(range(len(trad_throughput)))
         
         plt.figure(figsize=(12, 6))
@@ -509,14 +555,15 @@ class MetricsPlotter:
         plt.title('Сравнение пропускной способности')
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, 'throughput_comparison.png'))
         plt.close()
 
     def plot_fuel_consumption(self):
         """Создает график расхода топлива"""
-        trad_fuel = [frame.get('fuel_consumption', 0) for frame in self.traditional_data]
-        smart_fuel = [frame.get('fuel_consumption', 0) for frame in self.smart_data]
+        trad_fuel = [m.get('fuel_consumption', 0) for m in self.traditional_data]
+        smart_fuel = [m.get('fuel_consumption', 0) for m in self.smart_data]
         times = list(range(len(trad_fuel)))
         
         plt.figure(figsize=(12, 6))
@@ -528,6 +575,7 @@ class MetricsPlotter:
         plt.title('Сравнение расхода топлива')
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, 'fuel_consumption_comparison.png'))
         plt.close()
@@ -537,8 +585,8 @@ class MetricsPlotter:
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))
         
         # Время ожидания
-        trad_times = [frame['average_waiting_time'] for frame in self.traditional_data]
-        smart_times = [frame['average_waiting_time'] for frame in self.smart_data]
+        trad_times = [m['average_waiting_time'] for m in self.traditional_data]
+        smart_times = [m['average_waiting_time'] for m in self.smart_data]
         axs[0, 0].plot(trad_times, label='Традиционный')
         axs[0, 0].plot(smart_times, label='Умный')
         axs[0, 0].set_title('Среднее время ожидания')
@@ -546,8 +594,8 @@ class MetricsPlotter:
         axs[0, 0].grid(True)
         
         # Длина очередей
-        trad_queues = [max(frame['queue_lengths'].values()) for frame in self.traditional_data]
-        smart_queues = [max(frame['queue_lengths'].values()) for frame in self.smart_data]
+        trad_queues = [max(m['queue_lengths'].values()) for m in self.traditional_data]
+        smart_queues = [max(m['queue_lengths'].values()) for m in self.smart_data]
         axs[0, 1].plot(trad_queues, label='Традиционный')
         axs[0, 1].plot(smart_queues, label='Умный')
         axs[0, 1].set_title('Максимальная длина очереди')
@@ -555,17 +603,17 @@ class MetricsPlotter:
         axs[0, 1].grid(True)
         
         # Пропускная способность
-        trad_throughput = [frame['throughput'] for frame in self.traditional_data]
-        smart_throughput = [frame['throughput'] for frame in self.smart_data]
+        trad_throughput = [m['throughput'] for m in self.traditional_data]
+        smart_throughput = [m['throughput'] for m in self.smart_data]
         axs[1, 0].plot(trad_throughput, label='Традиционный')
         axs[1, 0].plot(smart_throughput, label='Умный')
         axs[1, 0].set_title('Пропускная способность')
-        axs[1, 0].legend()
         axs[1, 0].grid(True)
+        axs[1, 0].legend()
         
         # Расход топлива
-        trad_fuel = [frame.get('fuel_consumption', 0) for frame in self.traditional_data]
-        smart_fuel = [frame.get('fuel_consumption', 0) for frame in self.smart_data]
+        trad_fuel = [m.get('fuel_consumption', 0) for m in self.traditional_data]
+        smart_fuel = [m.get('fuel_consumption', 0) for m in self.smart_data]
         axs[1, 1].plot(trad_fuel, label='Традиционный')
         axs[1, 1].plot(smart_fuel, label='Умный')
         axs[1, 1].set_title('Расход топлива')
@@ -585,7 +633,8 @@ class MetricsPlotter:
         self.create_summary_plot()
 
 class DashboardUI:
-    """Интерактивный интерфейс управления симуляцией"""
+    """Интерактивная панель управления симуляцией"""
+    
     def __init__(self, simulation_manager, visualizer):
         self.simulation_manager = simulation_manager
         self.visualizer = visualizer
@@ -594,7 +643,6 @@ class DashboardUI:
         self.running = False
         self.mode = 'traditional'
         self.speed = 1.0
-        self.font = None
 
     def create_control_panel(self):
         """Создает панель управления симуляцией"""
@@ -665,7 +713,7 @@ class DashboardUI:
                 label = font.render(f"{metric}: {value:.2f}", True, (0, 0, 0))
                 metrics_panel.blit(label, (10, y_pos))
                 y_pos += 30
-        
+                
         return metrics_panel
 
     def handle_events(self):
@@ -673,31 +721,27 @@ class DashboardUI:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+                return False
                 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Обработка кликов по панели управления
                 mouse_pos = pygame.mouse.get_pos()
                 
-                # Кнопка запуска
+                # Обработка кликов по панели управления
                 if self.start_button.collidepoint(mouse_pos):
                     print("Запуск симуляции")
-                    
-                # Кнопка паузы
                 elif self.pause_button.collidepoint(mouse_pos):
                     self.simulation_manager.toggle_pause()
-                    
-                # Кнопка остановки
                 elif self.stop_button.collidepoint(mouse_pos):
                     self.running = False
-                    
-                # Переключатель контроллеров
                 elif self.traditional_button.collidepoint(mouse_pos):
                     self.mode = 'traditional'
                 elif self.smart_button.collidepoint(mouse_pos):
                     self.mode = 'smart'
+                    
+        return True
 
     def run(self):
-        """Запускает интерактивный режим"""
+        """Запускает интерактивный режим с панелью управления"""
         self.running = True
         self.window_size = (self.visualizer.window_size[0] + 200, self.visualizer.window_size[1])
         self.screen = pygame.display.set_mode(self.window_size)
@@ -733,58 +777,59 @@ class DashboardUI:
 def main():
     """Основная функция для запуска визуализации"""
     parser = argparse.ArgumentParser(description='Визуализация системы умного светофора')
-    parser.add_argument('--mode', type=str, default='single', choices=['single', 'comparison'],
-                        help='Режим визуализации')
-    parser.add_argument('--window-size', type=str, default='800,600',
-                        help='Размер окна (ширина,высота)')
-    parser.add_argument('--fps', type=int, default=30,
-                        help='Частота кадров')
-    parser.add_argument('--output-dir', type=str, default='visualization_results',
-                        help='Директория для сохранения результатов')
-    parser.add_argument('--save-animation', action='store_true',
-                        help='Сохранить анимацию')
-    parser.add_argument('--scale', type=float, default=10,
-                        help='Масштаб визуализации')
-    parser.add_argument('--interactive', action='store_true',
-                        help='Интерактивный режим')
+    parser.add_argument('--mode', type=str, default='single', choices=['single', 'comparison'])
+    parser.add_argument('--window-size', type=str, default='800,600')
+    parser.add_argument('--fps', type=int, default=30)
+    parser.add_argument('--output-dir', type=str, default='visualization_results')
+    parser.add_argument('--save-animation', action='store_true')
+    parser.add_argument('--scale', type=float, default=10.0)
+    parser.add_argument('--interactive', action='store_true')
+    parser.add_argument('--smart-algorithm', type=str, default='fuzzy', 
+                        choices=['fuzzy', 'reinforcement', 'webster'])  # ✅ Добавлено
     args = parser.parse_args()
 
-    # Создаем временные заглушки для Intersection и TrafficLight
-    class DummyIntersection:
-        pass
-    
-    class DummyTrafficLight:
-        def get_state(self):
-            return {'north': 'green', 'south': 'red', 'east': 'red', 'west': 'red'}
-
-    # Инициализируем визуализаторы
+    # Инициализируем компоненты
     window_size = tuple(map(int, args.window_size.split(',')))
+    directions = ['north', 'south', 'east', 'west']
     
-    intersection = DummyIntersection()
-    traffic_light = DummyTrafficLight()
+    # Создаем полосы движения
+    lanes = [
+        Lane(lane_id=i, direction=direction, length=100, max_speed=20)
+        for i, direction in enumerate(directions)
+    ]
+
+    # Создаем перекресток
+    intersection = type('obj', (object,), {
+        'passed_vehicles_count': 0,
+        'lanes': {d: type('obj', (object,), {'vehicles': []}) for d in directions}
+    })
     
+    # Создаем контроллеры
+    traditional_controller = TraditionalController(phases=create_default_phases())
+    smart_controller = SmartController(directions=directions, algorithm=args.smart_algorithm)
+
+    # Инициализируем визуализатор
     visualizer = IntersectionVisualizer(
         window_size=window_size,
         intersection=intersection,
-        traffic_light=traffic_light,
+        traffic_light=TrafficLight(traditional_controller),
         scale=args.scale,
         fps=args.fps
     )
-    
-    # Запускаем анимацию
+
+    # Запускаем симуляцию
     if args.interactive:
         dashboard = DashboardUI(None, visualizer)
         dashboard.run()
     else:
-        # Генерируем тестовые данные
         test_data = [{
-            'average_waiting_time': np.random.uniform(0, 60),
+            'queue_lengths': {d: np.random.randint(0, 10) for d in directions},
             'throughput': np.random.randint(0, 20),
-            'queue_lengths': {d: np.random.randint(0, 10) for d in ['north', 'south', 'east', 'west']},
+            'vehicles': [Vehicle(arrival_time=time.time(), vehicle_type='car', direction='north')],
             'active_phase': 'North-South Green',
             'fuel_consumption': np.random.uniform(0, 5)
         } for _ in range(100)]
-        
+
         if args.save_animation:
             output_path = os.path.join(args.output_dir, 'simulation.mp4')
             visualizer.save_animation(output_path, test_data)

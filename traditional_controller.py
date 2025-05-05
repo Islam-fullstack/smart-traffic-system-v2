@@ -15,7 +15,7 @@ class TrafficLightPhase:
         self.phase_id = phase_id
         self.phase_name = phase_name
         self.durations = durations
-        self.directions = directions
+        self.directions = directions.copy()  # Сохраняем копию
         self.total_duration = self.get_total_duration()
 
     def get_total_duration(self):
@@ -23,6 +23,7 @@ class TrafficLightPhase:
         return self.durations["green"] + self.durations["yellow"] + self.durations["red"]
 
     def get_state_at_time(self, time_in_phase):
+        """Возвращает состояние всех направлений в заданный момент времени внутри фазы"""
         if time_in_phase < self.durations["green"]:
             return self.directions.copy()
         
@@ -46,30 +47,36 @@ class TraditionalController:
         self.current_mode = current_mode
         self.start_time = None
         self.total_cycle_duration = sum(phase.get_total_duration() for phase in phases)
+        self.current_phase = self.phases[0].directions.copy() if phases else {}  # Добавлено для отслеживания текущего состояния
 
     def start(self):
         """Запускает работу контроллера и инициализирует таймер"""
         self.start_time = time.time()
 
     def update(self, current_time=None):
+        """Обновляет состояние светофора"""
         if self.start_time is None:
             self.start()
         
-        elapsed_time = (current_time or time.time()) - self.start_time
+        current_time = current_time or time.time()
+        elapsed_time = current_time - self.start_time
         normalized_time = elapsed_time % self.total_cycle_duration
-        
+
         time_counter = 0
         for phase in self.phases:
             phase_duration = phase.get_total_duration()
             if normalized_time < time_counter + phase_duration:
                 time_in_phase = normalized_time - time_counter
                 state = phase.get_state_at_time(time_in_phase)
-                print(f"[DEBUG] Phase: {phase.phase_name}, Time in phase: {time_in_phase:.1f}s")
+                self.current_phase = state  # Обновляем текущее состояние
                 return state
             time_counter += phase_duration
         
+        # Если ни одна фаза не подошла, возвращаем последнюю
         last_phase = self.phases[-1]
-        return last_phase.get_state_at_time(last_phase.get_total_duration() - 1)
+        state = last_phase.get_state_at_time(last_phase.get_total_duration() - 1)
+        self.current_phase = state  # Обновляем текущее состояние
+        return state
 
     def set_mode(self, mode):
         """Изменяет режим работы"""
@@ -82,7 +89,7 @@ class TraditionalController:
         """Возвращает текущую активную фазу"""
         if self.start_time is None:
             self.start()
-
+            
         elapsed_time = time.time() - self.start_time
         normalized_time = elapsed_time % self.total_cycle_duration
 
@@ -92,8 +99,14 @@ class TraditionalController:
             if normalized_time < time_counter + phase_duration:
                 return phase
             time_counter += phase_duration
-
+            
         return self.phases[-1]
+
+    def get_current_state(self):
+        """Возвращает текущее состояние светофора"""
+        if not self.phases:
+            return {d: "red" for d in ["north", "south", "east", "west"]}
+        return self.current_phase.copy() if isinstance(self.current_phase, dict) else self.phases[0].directions.copy()
 
     def load_configuration(self, config_file):
         """Загружает конфигурацию из JSON файла"""
@@ -115,7 +128,7 @@ class TraditionalController:
             self.phases = phases
             
             # Обновляем общую длительность цикла
-            self.total_cycle_duration = sum(phase.get_total_duration() for phase in phases)
+            self.total_cycle_duration = sum(phase.get_total_duration() for phase in self.phases)
             
             # Загружаем режимы работы
             if 'cycle_times' in config:
@@ -184,7 +197,7 @@ class TrafficLight:
 
     def get_state(self):
         """Возвращает текущее состояние всех направлений"""
-        return self.current_state
+        return self.current_state.copy()
 
     def is_green(self, direction):
         """Проверяет, горит ли зеленый свет для указанного направления"""

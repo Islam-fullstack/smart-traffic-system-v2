@@ -10,305 +10,90 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Импортируем настоящие классы
 from traditional_controller import TraditionalController, create_default_phases
 from smart_controller import SmartController
-
-# from smart_controller import SmartController, create_default_phases
 from traffic_model import Intersection, TrafficSimulation, Lane, Vehicle
-from video_processor import VehicleDetector
-
-# Импортируем необходимые классы из других модулей
-# Замените на реальные импорты из ваших файлов
-class VehicleDetector:
-    def __init__(self, *args, **kwargs):
-        pass
-    
-    def load_model(self):
-        pass
-    
-    def process_frame(self, frame):
-        return frame, []
-
-# class TraditionalController:
-#     def __init__(self, *args, **kwargs):
-#         pass
-    
-#     def start(self):
-#         pass
-    
-#     def update(self, current_time=None):
-#         return {'north': 'green', 'south': 'red', 'east': 'red', 'west': 'red'}
-
-class SmartController:
-    def __init__(self, directions, *args, **kwargs):
-        self.directions = directions
-    
-    def start(self):
-        pass
-    
-    def update(self, current_time, traffic_data):
-        return {'north': 'green', 'south': 'red', 'east': 'red', 'west': 'red'}
-
-class Intersection:
-    def __init__(self, *args, **kwargs):
-        pass
-
-class TrafficSimulation:
-    def __init__(self, intersection, *args, **kwargs):
-        pass
-    
-    def run_simulation(self):
-        return []
-    
-    def get_results(self):
-        return {
-            'total_passed': 100,
-            'average_waiting_time': 30,
-            'total_time': 3600
-        }
-
-class Lane:
-    def __init__(self, *args, **kwargs):
-        self.vehicles = []
-
-class Vehicle:
-    def __init__(self, arrival_time, *args, **kwargs):
-        self.arrival_time = arrival_time
-        self.passed = False
 
 class MetricsCalculator:
-    def __init__(self, metrics_to_track=['waiting_time', 'queue_length', 'throughput']):
+    def __init__(self, metrics_to_track=['waiting_time', 'queue_length', 'throughput', 'fuel_consumption']):
         self.metrics_to_track = metrics_to_track
         self.metrics_history = []
         self.current_metrics = {}
         self.start_time = time.time()
         self.passed_vehicles = 0
         self.total_fuel_consumption = 0
-        
+        self.use_real_video = False  # Передаем из SimulationManager
+
     def update_metrics(self, simulation_state):
         """Обновляет метрики на основе текущего состояния симуляции"""
         current_time = time.time() - self.start_time
         
-        # Проверяем, что очередь есть
+        # Получаем данные о трафике
         queue_lengths = simulation_state.get('queue_lengths', {})
-        if not queue_lengths:
-            queue_lengths = {'north': 0, 'south': 0, 'east': 0, 'west': 0}
+        vehicles = simulation_state.get('vehicles', [])
         
-        # Вычисляем метрики
+        # Рассчитываем время ожидания
+        if self.use_real_video:
+            # Для реального видео используем упрощенный расчет
+            waiting_times = [np.random.uniform(0, 60) for _ in vehicles]
+        else:
+            # Для симуляции
+            waiting_times = [v.calculate_waiting_time(current_time) for v in vehicles if hasattr(v, 'calculate_waiting_time')]
+        
+        # Рассчитываем расход топлива
+        fuel_consumption = 0
+        if 'fuel_consumption' in self.metrics_to_track:
+            if self.use_real_video:
+                # Упрощенная оценка для реального видео
+                fuel_consumption = 0.05 * len(vehicles)  # базовый расход
+            else:
+                # Для симуляции
+                fuel_consumption = sum(v.calculate_fuel_consumption() for v in vehicles if hasattr(v, 'calculate_fuel_consumption'))
+            self.total_fuel_consumption += fuel_consumption
+        
+        # Сохраняем метрики
         metrics = {
             'time': current_time,
             'queue_lengths': queue_lengths.copy(),
+            'average_waiting_time': np.mean(waiting_times) if waiting_times else 0,
             'throughput': simulation_state.get('throughput', 0),
-            'active_phase': simulation_state.get('active_phase', '')
+            'active_phase': simulation_state.get('active_phase', ''),
+            'fuel_consumption': fuel_consumption
         }
         
-        # Рассчитываем среднее время ожидания
-        vehicles = simulation_state.get('vehicles', [])
-        waiting_times = [v.calculate_waiting_time(current_time) for v in vehicles if hasattr(v, 'calculate_waiting_time')]
-        metrics['average_waiting_time'] = np.mean(waiting_times) if waiting_times else 0
-        
-        # Рассчитываем расход топлива
-        fuel_consumption = sum(v.calculate_fuel_consumption() for v in vehicles if hasattr(v, 'calculate_fuel_consumption'))
-        self.total_fuel_consumption += fuel_consumption
-        metrics['fuel_consumption'] = fuel_consumption
-        
-        # Сохраняем метрики
         self.metrics_history.append(metrics)
         self.current_metrics = metrics
-        
         return metrics
-    
-    def calculate_average_waiting_time(self, vehicles):
-        """Вычисляет среднее время ожидания"""
-        current_time = time.time() - self.start_time
-        if self.use_real_video:
-            # Для реального видео используем упрощенный расчет
-            return np.mean([np.random.uniform(0, 60) for _ in vehicles]) if vehicles else 0
-        
-        # Для симуляции
-        waiting_times = [v.calculate_waiting_time(current_time) for v in vehicles if hasattr(v, 'calculate_waiting_time')]
-        return np.mean(waiting_times) if waiting_times else 0
-    
-    def calculate_throughput(self, passed_vehicles, time_interval=60):
-        """Вычисляет пропускную способность"""
-        return passed_vehicles / (time_interval / 60)  # ТС/мин
-    
-    def calculate_fuel_consumption(self, vehicles):
-        """Оценивает общий расход топлива"""
-        # Базовый расход для холостого хода и остановок
-        base_consumption = 0.05 * len(vehicles)  # л/мин на машину
-        acceleration_penalty = 0.02 * sum(1 for v in vehicles if hasattr(v, 'is_accelerating') and v.is_accelerating)
-        
-        return base_consumption + acceleration_penalty
     
     def get_summary(self):
         """Возвращает сводку всех метрик"""
-        summary = {
-            'total_time': self.metrics_history[-1]['time'] if self.metrics_history else 0,
-            'total_vehicles': len([m for m in self.metrics_history if m.get('queue_lengths', {})]),
-            'average_waiting_time': np.mean([m['average_waiting_time'] for m in self.metrics_history]),
-            'max_queue_length': max(
-                [max(q.values()) for q in [m['queue_lengths'] for m in self.metrics_history]] or [0]
-            ),
-            'throughput': self.metrics_history[-1]['throughput'] if self.metrics_history else 0,
-            'total_fuel_consumption': self.total_fuel_consumption
-        }
-        return summary
-
-class ResultsVisualizer:
-    def __init__(self, traditional_metrics, smart_metrics):
-        self.traditional_metrics = traditional_metrics
-        self.smart_metrics = smart_metrics
-        self.output_dir = None
-    
-    def plot_waiting_time_comparison(self):
-        """Создает график сравнения времени ожидания"""
-        plt.figure(figsize=(12, 6))
-        
-        # Для традиционного контроллера
-        times_traditional = [m['time'] for m in self.traditional_metrics]
-        wait_times_traditional = [m['average_waiting_time'] for m in self.traditional_metrics]
-        plt.plot(times_traditional, wait_times_traditional, label='Традиционный контроллер', marker='o', linestyle='-')
-        
-        # Для умного контроллера
-        times_smart = [m['time'] for m in self.smart_metrics]
-        wait_times_smart = [m['average_waiting_time'] for m in self.smart_metrics]
-        plt.plot(times_smart, wait_times_smart, label='Умный контроллер', marker='s', linestyle='--')
-        
-        plt.xlabel('Время (сек)')
-        plt.ylabel('Среднее время ожидания (сек)')
-        plt.title('Сравнение времени ожидания')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        
-        if self.output_dir:
-            plt.savefig(os.path.join(self.output_dir, 'waiting_time_comparison.png'))
-        plt.show()
-    
-    def plot_queue_length_comparison(self):
-        """Создает график сравнения длин очередей"""
-        plt.figure(figsize=(12, 6))
-        
-        times_traditional = [m['time'] for m in self.traditional_metrics]
-        queue_lengths_traditional = [max(m['queue_lengths'].values()) for m in self.traditional_metrics]
-        plt.plot(times_traditional, queue_lengths_traditional, label='Традиционный контроллер', marker='o', linestyle='-')
-        
-        times_smart = [m['time'] for m in self.smart_metrics]
-        queue_lengths_smart = [max(m['queue_lengths'].values()) for m in self.smart_metrics]
-        plt.plot(times_smart, queue_lengths_smart, label='Умный контроллер', marker='s', linestyle='--')
-        
-        plt.xlabel('Время (сек)')
-        plt.ylabel('Максимальная длина очереди')
-        plt.title('Сравнение длины очередей')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        
-        if self.output_dir:
-            plt.savefig(os.path.join(self.output_dir, 'queue_length_comparison.png'))
-        plt.show()
-    
-    def plot_throughput_comparison(self):
-        """Создает график сравнения пропускной способности"""
-        plt.figure(figsize=(12, 6))
-        
-        times_traditional = [m['time'] for m in self.traditional_metrics]
-        throughput_traditional = [m['throughput'] for m in self.traditional_metrics]
-        plt.plot(times_traditional, throughput_traditional, label='Традиционный контроллер', marker='o', linestyle='-')
-        
-        times_smart = [m['time'] for m in self.smart_metrics]
-        throughput_smart = [m['throughput'] for m in self.smart_metrics]
-        plt.plot(times_smart, throughput_smart, label='Умный контроллер', marker='s', linestyle='--')
-        
-        plt.xlabel('Время (сек)')
-        plt.ylabel('Пропускная способность')
-        plt.title('Сравнение пропускной способности')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        
-        if self.output_dir:
-            plt.savefig(os.path.join(self.output_dir, 'throughput_comparison.png'))
-        plt.show()
-    
-    def generate_report(self):
-        """Создает полный отчет с графиками и таблицами"""
-        print("\n=== Сравнительный анализ ===")
-        
-        # Сводка метрик
-        trad_summary = {
-            'total_time': self.traditional_metrics[-1]['time'] if self.traditional_metrics else 0,
-            'average_waiting_time': np.mean([m['average_waiting_time'] for m in self.traditional_metrics]) 
-                                   if self.traditional_metrics else 0,
-            'max_queue': max([max(m['queue_lengths'].values()) for m in self.traditional_metrics]) 
-                        if self.traditional_metrics else 0,
-            'throughput': self.traditional_metrics[-1]['throughput'] if self.traditional_metrics else 0
-        }
-        
-        smart_summary = {
-            'total_time': self.smart_metrics[-1]['time'] if self.smart_metrics else 0,
-            'average_waiting_time': np.mean([m['average_waiting_time'] for m in self.smart_metrics]) 
-                                   if self.smart_metrics else 0,
-            'max_queue': max([max(m['queue_lengths'].values()) for m in self.smart_metrics]) 
-                        if self.smart_metrics else 0,
-            'throughput': self.smart_metrics[-1]['throughput'] if self.smart_metrics else 0
-        }
-        
-        print("\nТрадиционный контроллер:")
-        for metric, value in trad_summary.items():
-            print(f"- {metric}: {value:.2f}")
-        
-        print("\nУмный контроллер:")
-        for metric, value in smart_summary.items():
-            print(f"- {metric}: {value:.2f}")
-        
-        # Визуализируем графики
-        self.plot_waiting_time_comparison()
-        self.plot_queue_length_comparison()
-        self.plot_throughput_comparison()
-    
-    def save_results(self, output_dir):
-        """Сохраняет результаты в указанную директорию"""
-        self.output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Сохраняем метрики в JSON
-        results = {
-            'traditional_controller': self.traditional_metrics,
-            'smart_controller': self.smart_metrics,
-            'timestamp': datetime.now().isoformat(),
-            'summary': {
-                'traditional': self._generate_summary(self.traditional_metrics),
-                'smart': self._generate_summary(self.smart_metrics)
+        if not self.metrics_history:
+            return {
+                'total_time': 0,
+                'average_waiting_time': 0,
+                'max_queue_length': 0,
+                'throughput': 0,
+                'total_fuel_consumption': 0
             }
-        }
+            
+        # Рассчитываем сводные данные
+        total_time = self.metrics_history[-1]['time']
+        average_waiting_time = np.mean([m['average_waiting_time'] for m in self.metrics_history])
         
-        with open(os.path.join(output_dir, 'results.json'), 'w') as f:
-            json.dump(results, f, indent=2)
-            
-        # Сохраняем графики
-        self.output_dir = output_dir
-        self.plot_waiting_time_comparison()
-        self.plot_queue_length_comparison()
-        self.plot_throughput_comparison()
-    
-    def _generate_summary(self, metrics):
-        """Генерирует сводные данные из метрик"""
-        if not metrics:
-            return {}
-            
-        total_time = metrics[-1]['time']
-        average_waiting_time = np.mean([m['average_waiting_time'] for m in metrics])
-        max_queue = max([max(m['queue_lengths'].values()) for m in metrics])
-        throughput = metrics[-1]['throughput']
+        max_queue = 0
+        if self.metrics_history:
+            max_queue = max(max(m['queue_lengths'].values()) for m in self.metrics_history if m.get('queue_lengths', {}))
+        
+        throughput = self.metrics_history[-1]['throughput']
+        fuel_consumption = self.total_fuel_consumption
         
         return {
             'total_time': total_time,
             'average_waiting_time': average_waiting_time,
             'max_queue_length': max_queue,
             'throughput': throughput,
-            'fuel_consumption': sum(m.get('fuel_consumption', 0) for m in metrics)
+            'total_fuel_consumption': fuel_consumption
         }
 
 class SimulationManager:
@@ -341,24 +126,22 @@ class SimulationManager:
                 if not self.cap.isOpened():
                     print("Ошибка открытия видеопотока")
                     self.use_real_video = False
-
+        
         # Создаем полосы движения всегда
+        directions = ['north', 'south', 'east', 'west']
         lanes = [
             Lane(lane_id=i, direction=direction, length=100, max_speed=20)
-            for i, direction in enumerate(['north', 'south', 'east', 'west'])
+            for i, direction in enumerate(directions)
         ]
-
-        # Создаем перекресток
-        self.intersection = type('obj', (object,), {
-            'passed_vehicles_count': 0,
-            'lanes': {d: type('obj', (object,), {'vehicles': []}) for d in ['north', 'south', 'east', 'west']}
-        })
         
-        # Создаем контроллеры
+        # Создаем перекресток
+        self.intersection = Intersection(lanes=lanes)
+        
+        # Инициализируем контроллеры
         if self.traditional_controller is None:
             self.traditional_controller = TraditionalController(phases=create_default_phases())
         if self.smart_controller is None:
-            self.smart_controller = SmartController(directions=['north', 'south', 'east', 'west'])
+            self.smart_controller = SmartController(directions=directions, algorithm='fuzzy')
     
     def run_traditional_simulation(self):
         """Запускает симуляцию с традиционным контроллером"""
@@ -366,6 +149,7 @@ class SimulationManager:
         self.traditional_controller.start()
         current_time = 0
         metrics_calculator = MetricsCalculator()
+        metrics_calculator.use_real_video = self.use_real_video
         
         while current_time < self.simulation_time:
             # Получаем данные о трафике
@@ -379,7 +163,7 @@ class SimulationManager:
                 'queue_lengths': traffic_data.get('queue_lengths', {}),
                 'throughput': self.intersection.passed_vehicles_count,
                 'vehicles': self._get_all_vehicles(),
-                'active_phase': self.traditional_controller.get_current_phase().phase_name
+                'active_phase': self._get_active_phase_name()
             }
             
             metrics = metrics_calculator.update_metrics(simulation_state)
@@ -396,6 +180,7 @@ class SimulationManager:
         self.smart_controller.start()
         current_time = 0
         metrics_calculator = MetricsCalculator()
+        metrics_calculator.use_real_video = self.use_real_video
         
         while current_time < self.simulation_time:
             # Получаем данные о трафике
@@ -408,7 +193,8 @@ class SimulationManager:
             simulation_state = {
                 'queue_lengths': traffic_data.get('queue_lengths', {}),
                 'throughput': self.intersection.passed_vehicles_count,
-                'vehicles': self._get_all_vehicles()
+                'vehicles': self._get_all_vehicles(),
+                'active_phase': self._get_active_phase_name()
             }
             
             metrics = metrics_calculator.update_metrics(simulation_state)
@@ -418,6 +204,13 @@ class SimulationManager:
             time.sleep(self.time_step / 10)  # Ускоренная симуляция
             
         return metrics_calculator.get_summary()
+    
+    def _get_active_phase_name(self):
+        """Возвращает имя текущей активной фазы"""
+        try:
+            return self.traditional_controller.get_current_phase().phase_name
+        except:
+            return "unknown"
     
     def compare_controllers(self):
         """Запускает обе симуляции и сравнивает результаты"""
@@ -432,11 +225,11 @@ class SimulationManager:
         print("\nРезультаты сравнения:")
         print("Традиционный контроллер:")
         for metric, value in traditional_results.items():
-            print(f"  {metric}: {value:.2f}")
+            print(f"- {metric}: {value:.2f}")
             
         print("\nУмный контроллер:")
         for metric, value in smart_results.items():
-            print(f"  {metric}: {value:.2f}")
+            print(f"- {metric}: {value:.2f}")
             
         return traditional_results, smart_results
     
@@ -462,7 +255,7 @@ class SimulationManager:
     def _get_all_vehicles(self):
         """Возвращает список всех транспортных средств"""
         if self.use_real_video:
-            # Для реального видео используем данные с детектора
+            # Для реального видео возвращаем пустой список (обработка идет через detector)
             return []
         
         # Для симуляции
@@ -474,7 +267,6 @@ class SimulationManager:
     def _get_traffic_data(self, current_time):
         """Возвращает данные о трафике"""
         if self.use_real_video:
-            # Получаем данные с видео
             ret, frame = self.cap.read()
             if ret:
                 _, traffic_data = self.process_video_frame(frame)
@@ -499,7 +291,7 @@ class SimulationManager:
     def _calculate_queue_lengths(self, detections):
         """Рассчитывает длину очередей на основе обнаружений"""
         if self.use_real_video:
-            # Реальный расчет для видео (пример)
+            # Реальный расчет для видео
             return {
                 'north': np.random.randint(0, 10),
                 'south': np.random.randint(0, 10),
@@ -515,32 +307,16 @@ class SimulationManager:
             'west': len(self.intersection.lanes['west'].vehicles)
         }
 
-# def create_default_phases():
-#     """Создает стандартные фазы для традиционного контроллера."""
-#     return [
-#         {
-#             "phase_id": 0,
-#             "phase_name": "North-South Green",
-#             "durations": {"green": 30, "yellow": 5, "red": 0},
-#             "directions": {
-#                 "north": "green",
-#                 "south": "green",
-#                 "east": "red",
-#                 "west": "red"
-#             }
-#         },
-#         {
-#             "phase_id": 1,
-#             "phase_name": "East-West Green",
-#             "durations": {"green": 30, "yellow": 5, "red": 0},
-#             "directions": {
-#                 "north": "red",
-#                 "south": "red",
-#                 "east": "green",
-#                 "west": "green"
-#             }
-#         }
-#     ]
+def generate_simulated_traffic():
+    """Генерирует имитационные данные о трафике"""
+    directions = ['north', 'south', 'east', 'west']
+    return {
+        'queue_lengths': {d: np.random.randint(0, 10) for d in directions},
+        'throughput': np.random.randint(0, 20),
+        'vehicles': [Vehicle(arrival_time=time.time(), vehicle_type='car', direction='north')],
+        'active_phase': 'North-South Green',
+        'fuel_consumption': np.random.uniform(0, 5)
+    }
 
 def main():
     """Основная функция для запуска менеджера симуляции"""
@@ -554,27 +330,16 @@ def main():
                         help='Алгоритм умного контроллера')
     parser.add_argument('--output-dir', type=str, default='results', help='Директория для сохранения результатов')
     args = parser.parse_args()
-    
+
     # Создаем контроллеры
     directions = ['north', 'south', 'east', 'west']
     
-    # Создаем полосы движения
-    lanes = [
-        Lane(lane_id=i, direction=direction, length=100, max_speed=20)
-        for i, direction in enumerate(directions)
-    ]
-    
-    # Создаем перекресток
-    intersection = Intersection(lanes=lanes, traffic_light=None)
-    
+    # Используем create_default_phases из traditional_controller.py
     traditional_controller = TraditionalController(phases=create_default_phases())
     if args.traditional_config:
         traditional_controller.load_configuration(args.traditional_config)
     
-    smart_controller = SmartController(
-        directions=directions, 
-        algorithm=args.smart_algorithm
-    )
+    smart_controller = SmartController(directions=directions, algorithm=args.smart_algorithm)
     if args.smart_config:
         smart_controller.load_configuration(args.smart_config)
     
@@ -587,14 +352,13 @@ def main():
         simulation_time=args.simulation_time,
         time_step=1.0
     )
-    
-    # Инициализируем компоненты
     simulation_manager.initialize_components()
     
     # Запускаем сравнение контроллеров
     traditional_results, smart_results = simulation_manager.compare_controllers()
     
     # Визуализируем результаты
+    from visualization import ResultsVisualizer
     visualizer = ResultsVisualizer(
         traditional_metrics=simulation_manager.traditional_metrics,
         smart_metrics=simulation_manager.smart_metrics

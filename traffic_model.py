@@ -11,19 +11,25 @@ class Vehicle:
         'motorcycle': {'speed': 25, 'length': 3}
     }
 
-    def __init__(self, vehicle_id, vehicle_type, direction, arrival_time, speed=None, length=None):
-        self.vehicle_id = vehicle_id
+    def __init__(self, arrival_time, vehicle_type, direction):
+        self.arrival_time = arrival_time
         self.vehicle_type = vehicle_type
         self.direction = direction
-        self.arrival_time = arrival_time
-        self.speed = speed if speed is not None else self.DEFAULT_PROPERTIES[vehicle_type]['speed']
-        self.length = length if length is not None else self.DEFAULT_PROPERTIES[vehicle_type]['length']
-        self.position = 0  # Начальная позиция будет установлена при добавлении в полосу
+        self.position = 100  # начальное расстояние до перекрестка
+        self.length = {
+            'car': 5,
+            'truck': 10,
+            'bus': 12,
+            'motorcycle': 3
+        }.get(vehicle_type, 5)  # по умолчанию 5 метров
 
-    def update_position(self, green_light, time_step):
-        """Обновляет позицию транспортного средства"""
-        if green_light:
-            self.position -= self.speed * time_step
+    def update_position(self, time_step, is_moving=True):
+        """Обновляет позицию ТС"""
+        if is_moving:
+            self.position -= 10 * time_step  # 10 м/с - примерная скорость
+        else:
+            if self.position > 0:
+                self.position = max(0, self.position)
 
     def calculate_waiting_time(self, current_time):
         """Возвращает время ожидания на светофоре"""
@@ -93,7 +99,7 @@ class TrafficLight:
 
 class Intersection:
     """Класс для представления перекрестка"""
-    def __init__(self, lanes, traffic_light):
+    def __init__(self, lanes, traffic_light=None):
         self.lanes = {lane.direction: lane for lane in lanes}
         self.traffic_light = traffic_light
         self.passed_vehicles_count = 0
@@ -151,29 +157,18 @@ class TrafficSimulation:
         self.vehicle_counter = 0
         self.metrics_history = []
 
-    def generate_vehicles(self, current_time):
+    def generate_vehicles(self):
         """Генерирует новые транспортные средства"""
-        for direction in self.arrival_rates:
-            rate = self.arrival_rates[direction]  # ТС/мин
-            expected = rate * self.time_step / 60  # Ожидаемое количество ТС
-            num_vehicles = np.random.poisson(expected)
-            
-            for _ in range(num_vehicles):
-                # Выбираем тип транспортного средства
-                types = list(self.vehicle_type_distribution.keys())
-                probs = list(self.vehicle_type_distribution.values())
-                vehicle_type = np.random.choice(types, p=probs)
-                
-                # Создаем новое транспортное средство
+        for direction, rate in self.arrival_rates.items():
+            if np.random.uniform() < self._calculate_probability(rate):
+                vehicle_type = self._select_vehicle_type()
                 vehicle = Vehicle(
-                    vehicle_id=self.vehicle_counter,
+                    arrival_time=self.current_time,
                     vehicle_type=vehicle_type,
-                    direction=direction,
-                    arrival_time=current_time
+                    direction=direction
                 )
-                
-                self.vehicle_counter += 1
-                self.intersection.add_vehicle(vehicle)
+                if direction in self.intersection.lanes:
+                    self.intersection.lanes[direction].add_vehicle(vehicle)
 
     def run_simulation(self):
         """Запускает симуляцию"""

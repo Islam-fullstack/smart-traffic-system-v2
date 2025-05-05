@@ -1,0 +1,24 @@
+experiments:
+  - name: 'Fuzzy_1'
+    simulation_time: 300
+    algorithm: 'fuzzy'
+    min_green: 15
+    max_green: 90
+
+  - name: 'Fuzzy_2'
+    simulation_time: 300
+    algorithm: 'fuzzy'
+    min_green: 20
+    max_green: 80
+
+  - name: 'Webster'
+    simulation_time: 300
+    algorithm: 'webster'
+    min_green: 15
+    max_green: 90
+
+  - name: 'Reinforcement'
+    simulation_time: 300
+    algorithm: 'reinforcement'
+    min_green: 15
+    max_green: 90
