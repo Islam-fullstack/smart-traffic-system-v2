@@ -1,15 +1,20 @@
-````markdown
+```markdown
 # 🚦 Система умных светофоров
+```
 
 [![Build Status](https://github.com/yourusername/smart-traffic-system/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/smart-traffic-system/actions/workflows/ci.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/yourusername/smart-traffic-system)](https://github.com/yourusername/smart-traffic-system/blob/main/LICENSE)
 
+```
 ## Описание
+```
 
 Проект системы умных светофоров на основе компьютерного зрения и машинного обучения. Сравнивает эффективность традиционных и адаптивных контроллеров светофоров.
 
+```
 ## Структура проекта
+```
 
 | Файл                        | Назначение                                          |
 | --------------------------- | --------------------------------------------------- |
@@ -23,7 +28,9 @@
 | `config_templates.py`       | Генерация шаблонов конфигурации                     |
 | `tests.py`                  | Юнит- и интеграционные тесты                        |
 
+```
 ## Установка
+```
 
 ```bash
 # Клонируем репозиторий
@@ -38,6 +45,7 @@ venv\Scripts\activate     # Windows
 # Устанавливаем зависимости
 pip install -r requirements.txt
 ```
+
 ````
 
 ## Быстрый старт
@@ -75,7 +83,8 @@ python tests.py --test-module traditional --verbose 2
 ---
 
 #### 4. **CONTRIBUTING.md** (инструкция для контрибьюторов)
-```markdown
+
+````markdown
 # Как участвовать в проекте
 
 Спасибо за интерес к нашему проекту! Мы рады любому вкладу.
@@ -83,8 +92,10 @@ python tests.py --test-module traditional --verbose 2
 ## Рекомендации
 
 ### 1. Форкните репозиторий
+
 ```bash
 git clone https://github.com/islam-fullstack/smart-traffic-system.git
+```
 ````
 
 ### 2. Создайте виртуальное окружение
