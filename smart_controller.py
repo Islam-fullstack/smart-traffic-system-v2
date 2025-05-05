@@ -11,8 +11,7 @@ import matplotlib.pyplot as plt
 
 class SmartController:
     """Интеллектуальный адаптивный контроллер светофора"""
-    def __init__(self, directions, min_green_time=15, max_green_time=90, 
-             yellow_time=5, algorithm='fuzzy'):
+    def __init__(self, directions, min_green_time=15, max_green_time=90, yellow_time=5, algorithm='fuzzy'):
         self.directions = directions
         self.min_green_time = min_green_time
         self.max_green_time = max_green_time
@@ -29,6 +28,16 @@ class SmartController:
         self.fuzzy_vars = {}             # <-- Новый атрибут
         self.webster_method = None
         self.rl_controller = None
+        
+        # потом добавленный
+        
+        self.opposite_pairs = [
+            ['north', 'south'],
+            ['east', 'west']
+        ]
+        
+        # Инициализируем активную пару
+        self.active_pair_index = 0        
         
         # Инициализация системы нечеткой логики
         if algorithm == 'fuzzy':
@@ -180,23 +189,31 @@ class SmartController:
                 for d, v in traffic_data.items()}
 
     def _is_phase_complete(self, traffic_data):
-        """Проверяет, завершена ли текущая фаза"""
-        # Рассчитываем нужное время
-        required_duration = self.calculate_phase_duration(traffic_data)
+        """Проверяет, завершена ли текущая фаза для пары направлений"""
+        # Рассчитываем нужное время для активной пары
+        current_pair = self.opposite_pairs[self.active_pair_index]
         
-        # Проверяем, прошло ли достаточно времени
+        # Получаем данные о трафике для активной пары
+        pair_traffic = {d: traffic_data.get(d, 0) for d in current_pair}
+        
+        # Пример: среднее значение для пары
+        avg_queue = np.mean(list(pair_traffic.values()))
+        avg_waiting = np.mean([max(0, 10 * (v > 0)) for v in pair_traffic.values()])
+        
+        # Рассчитываем оптимальное время
+        required_duration = self.calculate_phase_duration(pair_traffic)
+        
         return self.phase_timer >= required_duration
 
     def switch_phase(self, traffic_data=None):
-        """Переключает текущую активную фазу"""
-        # Сначала желтый сигнал
+        """Переключает текущую активную фазу на противоположную пару"""
+        # Сначала желтый сигнал для всех активных направлений
         self._set_phase('yellow')
         time.sleep(self.yellow_time)
         
-        # Переключаем направления
-        current_idx = self.directions.index(self.active_directions[0]) if self.active_directions else 0
-        next_idx = (current_idx + 1) % len(self.directions)
-        self.active_directions = [self.directions[next_idx]]
+        # Переключаем на следующую пару
+        self.active_pair_index = (self.active_pair_index + 1) % len(self.opposite_pairs)
+        self.active_directions = self.opposite_pairs[self.active_pair_index]
         
         # Обновляем таймер
         self.phase_timer = 0
@@ -206,17 +223,20 @@ class SmartController:
         self._update_phase_state()
 
     def _update_phase_state(self):
-        """Обновляет состояние светофора на основе активных направлений"""
+        """Обновляет состояние светофора для пар противоположных направлений"""
         new_state = {}
+        active_pair = self.opposite_pairs[self.active_pair_index]
+        
         for direction in self.directions:
-            if direction in self.active_directions:
+            if direction in active_pair:
                 new_state[direction] = 'green'
             else:
                 new_state[direction] = 'red'
+        
         self.current_phase = new_state
 
     def _set_phase(self, color):
-        """Устанавливает указанную фазу для активных направлений"""
+        """Устанавливает указанную фазу для активной пары направлений"""
         new_state = self.current_phase.copy()
         for direction in self.active_directions:
             new_state[direction] = color
@@ -224,7 +244,10 @@ class SmartController:
 
     def get_current_state(self):
         """Возвращает текущее состояние всех направлений"""
-        return self.current_phase.copy()
+        return {
+            'phase': self.current_phase,
+            'active_pair': self.opposite_pairs[self.active_pair_index]
+        }
 
     def save_state(self, state_file):
         """Сохраняет текущее состояние в файл"""
@@ -437,7 +460,10 @@ def main():
             print(f"\nВремя: {int(time.time() - start_time)} сек")
             print(f"Данные о трафике: {traffic_data}")
             print(f"Текущее состояние: {current_state}")
-            print(f"Активные направления: {controller.active_directions}")
+            # print(f"Активные направления: {controller.active_directions}")
+            
+            # Выводите активную пару вместо одиночных направлений
+            print(f"Активные направления: {controller.get_current_state()['active_pair']}")
             
             # Ждем 5 секунд перед следующим обновлением
             time.sleep(5)
